@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#FB7299">
+  <title>Bilidown - B站视频解析工具</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FB7299'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial' fill='white' text-anchor='middle' font-weight='bold'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- 顶部导航栏 -->
+  <header class="navbar">
+    <div class="navbar-inner">
+      <div class="navbar-left">
+        <div class="logo">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="white" fill-opacity="0.25"/>
+            <text x="16" y="23" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">B</text>
+          </svg>
+          <span class="logo-text">Bilidown</span>
+        </div>
+      </div>
+      <div class="navbar-right">
+        <button class="nav-btn" id="btnHistory" title="历史记录" aria-label="历史记录">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </button>
+        <button class="nav-btn" id="btnConfig" title="设置" aria-label="设置">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+        <button class="nav-btn" id="btnAbout" title="关于" aria-label="关于">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 搜索区 -->
+  <section class="search-section">
+    <div class="search-container">
+      <div class="search-box">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="parseInput" class="search-input" placeholder="粘贴B站视频链接或分享文案" autocomplete="off">
+        <button id="btnParse" class="btn-parse">解析</button>
+      </div>
+      <p class="search-hint">支持 BV/AV 号、b23.tv 短链、网页链接、手机分享文案</p>
+    </div>
+  </section>
+
+  <!-- 主要内容区 -->
+  <main class="main-content">
+
+    <!-- ====== 首页视图 ====== -->
+    <section id="page-home" class="page page-home active">
+      <!-- 热门视频 -->
+      <div class="section-header">
+        <h2 class="section-title">热门推荐</h2>
+        <button class="section-refresh" id="btnRefreshPopular" aria-label="刷新">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+      </div>
+      <div class="popular-grid" id="popularList">
+        <!-- JS 动态渲染热门视频卡片 -->
+      </div>
+
+      <!-- 历史记录 -->
+      <div class="history-section">
+        <div class="section-header">
+          <h2 class="section-title">历史记录</h2>
+          <button class="btn-text" id="btnClearHistory">清除</button>
+        </div>
+        <div class="history-list" id="historyList">
+          <!-- JS 动态渲染 -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ====== 结果视图 ====== -->
+    <section id="page-result" class="page page-result">
+      <div class="result-card">
+        <div class="result-cover-wrap">
+          <img id="resultCover" class="result-cover" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='450' fill='%23f0f0f0'/%3E" alt="视频封面">
+          <span class="result-duration" id="resultDuration">--:--</span>
+        </div>
+        <div class="result-info">
+          <h1 id="resultTitle" class="result-title">视频标题</h1>
+          <div class="result-author" id="resultAuthor">
+            <span class="author-avatar" id="authorAvatar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+            </span>
+            <span class="author-name" id="authorName">UP主</span>
+          </div>
+          <div class="result-stats" id="resultStats">
+            <span class="stat-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 9 12 22 23 9 12 2 1 9"/></svg>
+              <span id="statPlay">--</span>
+            </span>
+            <span class="stat-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span id="statDanmaku">--</span>
+            </span>
+            <span class="stat-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+              <span id="statLike">--</span>
+            </span>
+            <span class="stat-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+              <span id="statCoin">--</span>
+            </span>
+          </div>
+          <div class="result-desc-wrap">
+            <p id="resultDesc" class="result-desc">视频简介</p>
+            <button class="btn-text desc-toggle" id="btnToggleDesc">展开</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 分P列表 -->
+      <div class="section-block">
+        <h3 class="block-title">分P列表</h3>
+        <div id="pageList" class="page-list">
+          <div class="page-empty">暂无分P信息</div>
+        </div>
+      </div>
+
+      <!-- 清晰度选择 -->
+      <div class="section-block">
+        <h3 class="block-title">清晰度</h3>
+        <div id="qualityList" class="quality-list">
+          <!-- JS 动态渲染 -->
+        </div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div class="result-actions">
+        <button id="btnPlay" class="action-btn action-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          播放
+        </button>
+        <button id="btnCopy" class="action-btn action-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          复制链接
+        </button>
+        <button id="btnDownload" class="action-btn action-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          下载
+        </button>
+      </div>
+    </section>
+
+    <!-- ====== 播放视图 ====== -->
+    <section id="page-player" class="page page-player">
+      <div class="player-container">
+        <video id="videoPlayer" class="video-player" controls preload="metadata" playsinline></video>
+      </div>
+      <div class="player-info" id="playerInfo">
+        <h3 id="playerTitle" class="player-title">正在播放</h3>
+        <div class="player-back">
+          <button class="btn-text" id="btnBackResult">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            返回视频详情
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ====== 加载动画 ====== -->
+  <div id="loading" class="loading-overlay" style="display:none;">
+    <div class="loading-spinner">
+      <div class="spinner-ring"></div>
+      <p class="loading-text">解析中...</p>
+    </div>
+  </div>
+
+  <!-- ====== Toast 消息提示 ====== -->
+  <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+  <!-- ====== 配置弹窗 ====== -->
+  <div id="config-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title">设置</h3>
+        <button class="modal-close" id="btnCloseModal" aria-label="关闭">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label" for="apiUrlInput">API 地址</label>
+        <input type="url" id="apiUrlInput" class="form-input" placeholder="https://api.bilidown.com" value="https://api.bilidown.com">
+        <p class="form-hint">请输入解析API的基础地址，需支持 HTTPS。</p>
+
+        <label class="form-label" for="playerMode">播放模式</label>
+        <select id="playerMode" class="form-input">
+          <option value="direct">直接播放</option>
+          <option value="redirect">跳转B站播放</option>
+        </select>
+        <p class="form-hint">直接播放将视频流嵌入页面播放；跳转播放将打开B站官方页面。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn btn-cancel" id="btnCancelModal">取消</button>
+        <button class="modal-btn btn-primary" id="btnSaveConfig">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 关于弹窗 ====== -->
+  <div id="about-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <h3 class="modal-title">关于 Bilidown</h3>
+        <button class="modal-close" id="btnCloseAbout" aria-label="关闭">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="about-logo">
+          <svg width="48" height="48" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="#FB7299"/>
+            <text x="16" y="23" font-size="20" font-family="Arial" fill="white" text-anchor="middle" font-weight="bold">B</text>
+          </svg>
+          <h3>Bilidown</h3>
+          <p class="about-version">版本 1.0.0</p>
+        </div>
+        <p class="about-desc">
+          Bilidown 是一个 B站视频信息解析工具，支持解析视频基本信息、分P列表、多清晰度选择，以及直接播放或跳转观看。
+        </p>
+        <p class="about-desc">
+          本项目为纯前端实现，不存储任何用户数据。视频数据通过配置的 API 地址获取。
+        </p>
+        <div class="about-links">
+          <a href="https://github.com" target="_blank" rel="noopener noreferrer">GitHub</a>
+          <span class="about-divider">|</span>
+          <span>Powered by Bilidown</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部 -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <p>&copy; 2026 Bilidown. All rights reserved.</p>
+      <p class="footer-powered">Powered by Bilidown</p>
+    </div>
+  </footer>
+
+  <script src="js/parser.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
