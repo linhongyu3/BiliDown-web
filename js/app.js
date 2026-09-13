@@ -41,6 +41,9 @@
     currentVideo: null,       // 当前解析的视频数据
     currentPage: 1,           // 当前分P
     currentQuality: null,     // 当前选中清晰度
+    qrKey: null,              // 扫码登录二维码 key
+    qrCookies: null,          // 生成二维码时下发的 B站 cookie
+    qrTimer: null,            // 扫码状态轮询定时器
   };
 
   // --- 工具函数 ---
@@ -617,10 +620,12 @@
     const cookies = (window.API && typeof API.getBiliCookies === 'function') ? API.getBiliCookies() : '';
     $('biliCookiesInput').value = cookies || '';
     configModal.style.display = 'flex';
+    updateQrLoginUI();
   }
 
   function closeConfig() {
     configModal.style.display = 'none';
+    stopQrLogin();
   }
 
   function saveConfig() {
@@ -660,6 +665,131 @@
 
   function closeAbout() {
     aboutModal.style.display = 'none';
+  }
+
+  // ============================================================
+  // B站扫码登录
+  // ============================================================
+
+  /** 更新登录状态显示 */
+  function updateQrLoginUI() {
+    const loggedIn = window.API && typeof API.isBiliLoggedIn === 'function' && API.isBiliLoggedIn();
+    if ($('qrLoggedIn')) {
+      $('qrLoggedIn').style.display = loggedIn ? 'block' : 'none';
+    }
+  }
+
+  /** 显示扫码状态文字 */
+  function showQrStatus(text, showRefresh) {
+    if (!$('qrStatus')) return;
+    $('qrStatus').textContent = text || '';
+    if ($('btnQrRefresh')) {
+      $('btnQrRefresh').style.display = showRefresh ? 'inline-block' : 'none';
+    }
+  }
+
+  /** 用 qrcode 库渲染二维码到容器 */
+  function renderQr(url) {
+    const box = $('qrBox');
+    if (!box) return;
+    box.innerHTML = '';
+    if (typeof window.qrcode !== 'function') {
+      showQrStatus('二维码组件加载失败，请刷新页面重试', true);
+      return;
+    }
+    try {
+      const qr = window.qrcode(0, 'L');
+      qr.addData(url);
+      qr.make();
+      box.innerHTML = qr.createImgTag(4, 8);
+    } catch (e) {
+      showQrStatus('二维码生成失败: ' + (e.message || e), true);
+    }
+  }
+
+  /** 停止扫码轮询 */
+  function stopQrLogin() {
+    if (STATE.qrTimer) {
+      clearInterval(STATE.qrTimer);
+      STATE.qrTimer = null;
+    }
+    STATE.qrKey = null;
+  }
+
+  /** 开始扫码登录：生成二维码并轮询状态 */
+  async function startQrLogin() {
+    stopQrLogin();
+    if (!getApiBase()) {
+      showToast('请先填写 API 地址');
+      return;
+    }
+    if (!$('qrPanel')) return;
+    $('qrPanel').style.display = 'flex';
+    showQrStatus('正在生成二维码...', false);
+
+    const res = await API.qrCreate();
+    if (res.code !== 0 || !res.data || !res.data.qrcode_key) {
+      showQrStatus('生成失败：' + (res.message || '未知错误'), true);
+      return;
+    }
+    if (!res.data.url) {
+      showQrStatus('未返回登录链接，请刷新重试', true);
+      return;
+    }
+
+    STATE.qrKey = res.data.qrcode_key;
+    STATE.qrCookies = res.data.cookies || '';
+    renderQr(res.data.url);
+    showQrStatus('请使用「B站」App 扫码，然后在手机上确认登录', false);
+
+    // 每 2 秒轮询一次
+    STATE.qrTimer = setInterval(pollQrStatus, 2000);
+    pollQrStatus();
+  }
+
+  /** 轮询扫码状态 */
+  async function pollQrStatus() {
+    if (!STATE.qrKey) return;
+    const res = await API.qrPoll(STATE.qrKey, STATE.qrCookies);
+    if (res.code !== 0 || !res.data) {
+      return; // 网络/服务错误，等待下次轮询
+    }
+    const st = res.data.code;
+    if (st === 0) {
+      // 登录成功
+      const cookies = res.data.cookies || '';
+      if (!cookies) {
+        stopQrLogin();
+        showQrStatus('登录成功但未取到 Cookie，请刷新二维码重试', true);
+        return;
+      }
+      API.setBiliCookies(cookies);
+      if ($('biliCookiesInput')) $('biliCookiesInput').value = cookies;
+      stopQrLogin();
+      if ($('qrPanel')) $('qrPanel').style.display = 'none';
+      updateQrLoginUI();
+      showToast('扫码登录成功');
+    } else if (st === 86090) {
+      showQrStatus('已扫码，请在手机上「确认登录」', false);
+    } else if (st === 86038) {
+      stopQrLogin();
+      showQrStatus('二维码已失效，请点击刷新', true);
+    } else if (st === 86101) {
+      showQrStatus('请使用「B站」App 扫码，然后在手机上确认登录', false);
+    }
+    // 其他状态码继续轮询
+  }
+
+  /** 清除 B站登录 */
+  function clearBiliLogin() {
+    stopQrLogin();
+    if (window.API && typeof API.clearBiliCookies === 'function') {
+      API.clearBiliCookies();
+    }
+    if ($('biliCookiesInput')) $('biliCookiesInput').value = '';
+    if ($('qrPanel')) $('qrPanel').style.display = 'none';
+    updateQrLoginUI();
+    showToast('已清除 B站登录');
   }
 
   // --- 清除历史 ---
