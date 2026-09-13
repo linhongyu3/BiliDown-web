@@ -41,3 +41,26 @@ const popTxt = await popRes.text();
 const pop = JSON.parse(popTxt);
 console.log('=== /api/popular (guest) ===');
 console.log('code:', pop.code, 'message:', pop.message);
+
+// 测试扫码登录 - 生成二维码
+const createReq = new Request('https://x/api/auth/qr/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+const createRes = await worker.fetch(createReq, env);
+const createBody = JSON.parse(await createRes.text());
+console.log('=== /api/auth/qr/create ===');
+console.log('code:', createBody.code, 'message:', createBody.message);
+console.log('qrcode_key:', createBody.data?.qrcode_key);
+console.log('url:', createBody.data?.url);
+console.log('cookies:', createBody.data?.cookies);
+
+// 测试扫码登录 - 轮询
+if (createBody.data?.qrcode_key) {
+  const pollReq = new Request('https://x/api/auth/qr/poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ qrcode_key: createBody.data.qrcode_key, cookies: createBody.data.cookies }),
+  });
+  const pollRes = await worker.fetch(pollReq, env);
+  const pollTxt = await pollRes.text();
+  console.log('=== /api/auth/qr/poll ===');
+  console.log('poll:', pollTxt);
+}
