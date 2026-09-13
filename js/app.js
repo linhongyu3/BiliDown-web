@@ -293,7 +293,6 @@
         });
         renderPopularVideos(mapped);
         try { localStorage.setItem('bilidown_popular', JSON.stringify(mapped)); } catch(e) {}
-        }
       }
     }).catch(function() { /* 静默失败，使用缓存 */ });
   }
@@ -318,7 +317,7 @@
   function getApiBase() {
     return window.API && typeof API.getApiUrl === 'function'
       ? API.getApiUrl()
-      : (localStorage.getItem('bilidown_api') || '').replace(/\/+$/, '') || '';
+      : (localStorage.getItem('bilidown_api_url') || '').replace(/\/+$/, '') || '';
   }
 
   /** 解析视频 */
@@ -609,8 +608,9 @@
 
   // --- 弹窗控制 ---
   function openConfig() {
-    const saved = localStorage.getItem('bilidown_api');
-    if (saved) $('apiUrlInput').value = saved;
+    // 统一从 API 模块读取当前地址（内部使用 bilidown_api_url 键）
+    const saved = (window.API && typeof API.getApiUrl === 'function') ? API.getApiUrl() : '';
+    $('apiUrlInput').value = saved || '';
     const mode = localStorage.getItem('bilidown_player_mode') || 'direct';
     $('playerMode').value = mode;
     configModal.style.display = 'flex';
@@ -623,8 +623,14 @@
   function saveConfig() {
     const apiUrl = $('apiUrlInput').value.trim();
     const mode = $('playerMode').value;
+    // 统一通过 API 模块保存（使用 bilidown_api_url 键，与 API 读取一致）
     if (apiUrl) {
-      localStorage.setItem('bilidown_api', apiUrl);
+      if (window.API && typeof API.setApiUrl === 'function') {
+        API.setApiUrl(apiUrl);
+      } else {
+        localStorage.setItem('bilidown_api_url', apiUrl);
+        window.BILIDOWN_API_URL = apiUrl;
+      }
     }
     localStorage.setItem('bilidown_player_mode', mode);
     closeConfig();
@@ -709,23 +715,21 @@
     init();
   }
 
-  // 导出到全局（供 HTML 内联事件和其他脚本调用）
+  // 导出到全局（供 HTML 模板字符串中的 onerror 内联事件调用）
+  // 注意：仅暴露真实存在且实际被使用的函数，避免引用未定义函数
   window.AppFunctions = {
     imgFallback: imgFallback,
     proxyImage: proxyImage,
-    handleParse: function() { handleParse(); },
-    showPage: showPage,
-    showToast: showToast,
-    playVideo: function() { playVideo(); },
-    copyLink: function() { copyLink(); },
-    copyBv: function() { copyBv(); },
-    copyPlayUrl: function() { copyPlayUrl(); },
-    downloadVideo: function() { downloadVideo(); },
-    toggleDesc: function() { toggleDesc(); },
-    switchQuality: function(qn) { switchQuality(qn); },
-    switchPage: function(idx, cid) { switchPage(idx, cid); },
-    clearHistory: function() { clearHistory(); },
-    saveApiUrl: function() { saveApiUrl(); },
+    parseVideo: parseVideo,
+    playVideo: playVideo,
+    downloadVideo: downloadVideo,
+    copyLink: copyLink,
+    toggleDesc: toggleDesc,
+    clearHistory: clearHistory,
+    openConfig: openConfig,
+    closeConfig: closeConfig,
+    openAbout: openAbout,
+    closeAbout: closeAbout,
   };
 
 })();

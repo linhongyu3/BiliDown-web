@@ -6,10 +6,18 @@ Bilidown 是一个 Bilibili 视频下载工具的 Web 前端。本项目提供�
 
 ```
 bilidown-web/
-├── worker.js          # Cloudflare Workers API 代理脚本
-├── README.md          # 本部署说明文档
-└── index.html         # 前端页面 (自行创建或已有)
+├── worker.js          # Cloudflare Workers API 代理脚本（部署到 CF Workers）
+├── index.html         # 前端主页面（部署到静态托管）
+├── css/
+│   └── style.css      # 响应式样式
+├── js/
+│   ├── parser.js      # B站链接解析器
+│   ├── api.js         # API 请求封装
+│   └── app.js         # 主逻辑
+└── README.md          # 本部署说明文档
 ```
+
+> **重要**：`worker.js` 是本项目的 API 代理后端，必须部署到 Cloudflare Workers 供前端调用。前端（`index.html` + `css/` + `js/`）是纯静态页面，部署到 GitHub Pages 等托管平台。两者缺一不可 —— 前端依赖 Worker 提供的 `/api/parse`、`/api/image` 等接口。
 
 ## 前端部署到 GitHub Pages
 
@@ -125,22 +133,28 @@ https://bilidown-api.<你的子域名>.workers.dev/api/ping
 
 ## 配置前端 Worker URL
 
-在 Bilidown 前端的 JavaScript 代码中，将 API 基础地址指向你的 Worker:
+在 Bilidown 页面中完成配置，无需改代码：
 
-```javascript
-// 例如在前端 app.js 或配置文件中
-const CONFIG = {
-  API_BASE: 'https://bilidown-api.<你的子域名>.workers.dev',
-  // 或者如果配置了自定义域名
-  // API_BASE: 'https://api.bilidown.example.com',
-};
-```
+1. 打开前端页面
+2. 点击右上角**设置齿轮** ⚙️
+3. 在"API 地址"输入框填入你的 Worker 地址，例如：
+
+   ```
+   https://bilidown-api.<你的子域名>.workers.dev
+   ```
+
+4. 点击"保存"
+
+配置会存储到浏览器 localStorage（键名为 `bilidown_api_url`）。也可以在前端 `js/api.js` 顶部的 `API.setApiUrl()` 或通过控制台执行 `API.setApiUrl('https://...')` 手动设置。
+
+> **注意**：`api.js` 与 `app.js` 的配置弹窗读写的是同一个键 `bilidown_api_url`，保存后在当前浏览器立即生效。生产环境建议前置 `https` 以提高可用性。
 
 ## API 路由一览
 
 | 前端路径 | 方法 | B站 API | 说明 |
 |---------|------|---------|------|
 | `/api/ping` | GET | - | 连通性测试 |
+| `/api/image?url=xxx` | GET | - | 图片代理（绕过 B站防盗链） |
 | `/api/parse` | POST | - | 解析链接，返回视频/番剧信息 |
 | `/api/video/info?bvid=xxx` | GET | `/x/web-interface/view` | 视频信息 (WBI) |
 | `/api/video/playurl?bvid=xxx&cid=xxx` | GET | `/x/player/wbi/playurl` | 播放地址 (WBI) |
