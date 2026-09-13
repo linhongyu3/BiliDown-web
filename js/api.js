@@ -443,6 +443,29 @@
   };
 
   /**
+   * DASH 高清/杜比视界下载（带用户 Cookie，后端 ffmpeg 合并流式返回）
+   * 返回原始 Response；由前端决定保存方式
+   */
+  API.download = function(bvid, cid, qn, filename) {
+    var base = getBaseUrl().replace(/\/+$/, '');
+    var qs = [];
+    if (bvid) qs.push('bvid=' + encodeURIComponent(bvid));
+    qs.push('cid=' + encodeURIComponent(cid));
+    if (qn) qs.push('qn=' + encodeURIComponent(qn));
+    if (filename) qs.push('filename=' + encodeURIComponent(filename));
+    var url = base + '/api/video/download' + (qs.length > 0 ? '?' + qs.join('&') : '');
+
+    var headers = {};
+    var biliCookies = global.BILIDOWN_BIli_COOKIES || '';
+    try {
+      biliCookies = biliCookies || (global.localStorage.getItem('bilidown_cookies') || '');
+    } catch (e) {}
+    if (biliCookies) headers['X-Bili-Cookies'] = biliCookies;
+
+    return fetch(url, { method: 'GET', headers: headers });
+  };
+
+  /**
    * 获取收藏夹列表
    * GET /api/fav/list?id=xxx
    */
@@ -557,8 +580,11 @@
   // ============================================================
 
   (function init() {
-    // 本地后端默认地址；localStorage 无记录时回退到这里，避免空地址导致解析失败
-    global.BILIDOWN_DEFAULT_API = 'http://localhost:2233';
+    // 默认用当前页面同源：本地(localhost)和局域网设备访问时都能自动指向本机后端
+    // 仅当页面并非由本后端托管(如 file:// 或纯静态页)时才回退到 localhost:2233
+    global.BILIDOWN_DEFAULT_API = (global.location && global.location.origin && /^https?:/.test(global.location.origin))
+      ? global.location.origin
+      : 'http://localhost:2233';
     try {
       var savedUrl = global.localStorage.getItem('bilidown_api_url');
       global.BILIDOWN_API_URL = (savedUrl && savedUrl.trim()) ? savedUrl.replace(/\/+$/, '') : global.BILIDOWN_DEFAULT_API;

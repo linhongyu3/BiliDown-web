@@ -84,6 +84,16 @@
   function showPage(page) {
     [pageHome, pageResult, pagePlayer].forEach(p => p.classList.remove('active'));
     page.classList.add('active');
+
+    // 离开播放页时暂停并释放视频，避免离开页面后仍继续播放
+    if (page !== pagePlayer) {
+      const player = $('videoPlayer');
+      if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+      }
+    }
   }
 
   /** 显示 Toast 消息 */
@@ -613,6 +623,66 @@
   }
 
   // --- 下载 ---
+  function sanitize(name) {
+    return (name || 'video').replace(/[\\/:*?"<>|]/g, '_').trim();
+  }
+
+  function buildFilename(video, partName, label) {
+    const cleanTitle = sanitize(video.title || 'video');
+    const cleanPart = (partName && partName !== cleanTitle ? '-' + sanitize(partName) : '');
+    return `${cleanTitle}${cleanPart}-${label || 'video'}.mp4`;
+  }
+
+  // 从已渲染的清晰度列表里取当前清晰度标签
+  function currentQualityLabel(qn) {
+    const qs = (STATE.currentVideo && STATE.currentVideo.qualities) || [];
+    for (let i = 0; i < qs.length; i++) {
+      const c = qs[i].code || qs[i].quality || qs[i].qn;
+      if (String(c) === String(qn)) return qs[i].name || qs[i].description || qn;
+    }
+    return qn + 'P';
+  }
+
+  // 流式写入磁盘（File System Access API，Chromium），大文件不占内存
+  function saveStreamToDisk(stream, filename) {
+    return new Promise(function (resolve, reject) {
+      if (!window.showSaveFilePicker) {
+        reject(new Error('unsupported'));
+        return;
+      }
+      window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'MP4 视频', accept: { 'video/mp4': ['.mp4'] } }],
+      }).then(function (handle) {
+        return handle.createWritable().then(async function (writable) {
+          const reader = stream.getReader();
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              await writable.write(value);
+            }
+            await writable.close();
+            resolve();
+          } catch (e) {
+            try { await writable.abort(); } catch (_) {}
+            reject(e);
+          }
+        });
+      }).catch(reject);
+    });
+  }
+
+  function triggerBlobDownload(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  }
+
   function downloadVideo() {
     const video = STATE.currentVideo;
     if (!video) {
@@ -631,37 +701,65 @@
       return;
     }
 
-    showLoading('获取下载地址...');
+    const label = currentQualityLabel(qn);
+    const filename = buildFilename(video, partName, label);
+    const qnNum = Number(qn);
 
-    // 前端带 Cookie 解析出所选清晰度的直链，再交给后端流代理下载（绕防盗链）
-    Promise.resolve(window.API && API.getPlayUrl ? API.getPlayUrl(bvid, cid, qn) : Promise.resolve(null))
-      .then(function (playInfo) {
-        if (!playInfo || !playInfo.url) {
+    // 低清晰度（<1080P）走 durl/mp4 直链代理，轻量。高清/4K/杜比走 DASH 合并
+    if (qnNum < 80) {
+      showLoading('获取下载地址...');
+      Promise.resolve(window.API && API.getPlayUrl ? API.getPlayUrl(bvid, cid, qn) : Promise.resolve(null))
+        .then(function (playInfo) {
+          if (!playInfo || !playInfo.url) {
+            hideLoading();
+            showToast('无法获取下载地址');
+            return;
+          }
+          const apiBase = getApiBase();
+          const streamUrl = `${apiBase}/api/video/stream?url=${encodeURIComponent(playInfo.url)}&qn=${encodeURIComponent(qn)}`;
+          showLoading('正在下载（大文件请耐心等待）...');
+          // 同源<a download>直链：浏览器边下边存，显示真实进度
+          const a = document.createElement('a');
+          a.href = streamUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
           hideLoading();
-          showToast('无法获取下载地址');
-          return;
+          showToast('开始下载: ' + filename, 3500);
+        })
+        .catch(function (err) {
+          hideLoading();
+          showToast('下载失败: ' + (err.message || err));
+        });
+      return;
+    }
+
+    // 高清/DASH：带 Cookie 请求后端，ffmpeg 合并视频+音频轨流式返回
+    showLoading('正在获取 ' + label + ' 流（需要 ffmpeg）...');
+    if (!window.API || typeof API.download !== 'function') {
+      hideLoading();
+      showToast('DASH 下载暂不可用');
+      return;
+    }
+
+    API.download(bvid, cid, qn, filename)
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return null; }).then(function (j) {
+            throw new Error((j && j.message) || '下载失败: HTTP ' + resp.status);
+          });
         }
-
-        const apiBase = getApiBase();
-        const streamUrl = `${apiBase}/api/video/stream?url=${encodeURIComponent(playInfo.url)}&qn=${encodeURIComponent(qn)}`;
-
-        // 拼接文件名：标题 + 分P名 + 清晰度
-        const qIdx = playInfo.acceptQuality ? playInfo.acceptQuality.indexOf(Number(qn)) : -1;
-        const qLabel = (playInfo.acceptDescription && qIdx >= 0) ? playInfo.acceptDescription[qIdx] : (qn + 'P');
-        const cleanTitle = (video.title || 'video').replace(/[\\/:*?"<>|]/g, '_');
-        const cleanPart = (partName && partName !== cleanTitle ? '-' + partName : '').replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${cleanTitle}${cleanPart}-${qLabel}.mp4`;
-
-        showLoading('正在下载（大文件请耐心等待）...');
-        // 同源<a download>直链：浏览器边下边存，显示真实进度，避免整片缓冲到内存
-        const a = document.createElement('a');
-        a.href = streamUrl;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
         hideLoading();
-        showToast('开始下载: ' + filename, 3500);
+        return saveStreamToDisk(resp.body, filename).then(function () {
+          showToast('已保存: ' + filename, 3500);
+        }).catch(function (e) {
+          // 不支持流式保存则回退 Blob 下载
+          return resp.blob().then(function (blob) {
+            triggerBlobDownload(blob, filename);
+            showToast('开始下载: ' + filename, 3500);
+          });
+        });
       })
       .catch(function (err) {
         hideLoading();
