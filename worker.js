@@ -232,6 +232,14 @@ function jsonError(message, code = -1, httpStatus = 200) {
   });
 }
 
+// 将参数对象转换为查询字符串（避免 URLSearchParams 对象重载的 TS 类型问题）
+function toQueryString(params) {
+  return Object.keys(params)
+    .filter((k) => params[k] !== undefined && params[k] !== null)
+    .map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k]))
+    .join('&');
+}
+
 async function biliFetch(path, params, env, needSign = true, cookies) {
   let finalParams = params;
 
@@ -239,8 +247,7 @@ async function biliFetch(path, params, env, needSign = true, cookies) {
     finalParams = await signParams(params, env, cookies);
   }
 
-  const searchParams = new URLSearchParams(finalParams);
-  const url = `${API_BASE}${path}?${searchParams.toString()}`;
+  const url = `${API_BASE}${path}?${toQueryString(finalParams)}`;
 
   const headers = await buildHeaders(env, cookies);
   const resp = await fetch(url, { headers });
@@ -395,7 +402,7 @@ async function fetchContentInfo(parseResult, env, cookies) {
     case 'ep': {
       const params = { ep_id: id };
       const headers = await buildHeaders(env, cookies);
-      const resp = await fetch(`${PGC_API_BASE}?${new URLSearchParams(params)}`, {
+      const resp = await fetch(`${PGC_API_BASE}?${toQueryString(params)}`, {
         headers,
       });
       const data = await resp.json();
@@ -408,7 +415,7 @@ async function fetchContentInfo(parseResult, env, cookies) {
     case 'ss': {
       const params = { season_id: id };
       const headers = await buildHeaders(env, cookies);
-      const resp = await fetch(`${PGC_API_BASE}?${new URLSearchParams(params)}`, {
+      const resp = await fetch(`${PGC_API_BASE}?${toQueryString(params)}`, {
         headers,
       });
       const data = await resp.json();
@@ -542,7 +549,7 @@ async function handleSeasonInfo(url, env, cookies) {
   if (ssid) params.season_id = ssid;
 
   const headers = await buildHeaders(env, cookies);
-  const resp = await fetch(`${PGC_API_BASE}?${new URLSearchParams(params)}`, {
+  const resp = await fetch(`${PGC_API_BASE}?${toQueryString(params)}`, {
     headers,
   });
   const data = await resp.json();
