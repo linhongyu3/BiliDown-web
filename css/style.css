@@ -1051,6 +1051,66 @@ select.form-input {
   transform: translateY(-1px);
 }
 
+/* --- 扫码登录 --- */
+.qr-login {
+  margin-top: 14px;
+}
+.qr-login-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 8px;
+}
+.qr-box {
+  background: #fff;
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qr-box img {
+  display: block;
+  width: 168px;
+  height: 168px;
+}
+.qr-status {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+  text-align: center;
+}
+.qr-refresh {
+  margin-top: 10px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+.qr-login-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.qr-login-actions .modal-btn {
+  flex: 1;
+}
+.btn-danger {
+  background: rgba(255, 77, 79, 0.1);
+  color: #ff4d4f;
+}
+.btn-danger:hover {
+  background: rgba(255, 77, 79, 0.18);
+}
+.qr-logged-in {
+  font-size: 14px;
+  color: #52c41a;
+  margin-top: 10px;
+  text-align: center;
+  font-weight: 600;
+}
+
 /* --- 关于弹窗 --- */
 .about-logo {
   text-align: center;

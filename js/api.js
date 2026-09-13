@@ -490,6 +490,44 @@
     }
   };
 
+  /**
+   * 是否已登录 B站（存在有效 Cookie）
+   */
+  API.isBiliLoggedIn = function() {
+    return /SESSDATA=/.test(API.getBiliCookies());
+  };
+
+  /**
+   * 生成扫码登录二维码
+   * POST /api/auth/qr/create
+   * 返回 {code, message, data: {qrcode_key, url, cookies}}
+   */
+  API.qrCreate = function() {
+    return apiCallPost('/api/auth/qr/create', {});
+  };
+
+  /**
+   * 轮询扫码登录状态
+   * POST /api/auth/qr/poll
+   * 返回 data.code: 86101未扫码 | 86090已扫码待确认 | 86038已失效 | 0成功
+   */
+  API.qrPoll = function(qrcodeKey, cookies) {
+    return apiCallPost('/api/auth/qr/poll', {
+      qrcode_key: qrcodeKey,
+      cookies: cookies || ''
+    });
+  };
+
+  /**
+   * 清除已保存的 B站登录 Cookie
+   */
+  API.clearBiliCookies = function() {
+    global.BILIDOWN_BIli_COOKIES = '';
+    try {
+      global.localStorage.removeItem('bilidown_cookies');
+    } catch (e) {}
+  };
+
   // ============================================================
   // 从 localStorage 恢复 API 地址
   // ============================================================
