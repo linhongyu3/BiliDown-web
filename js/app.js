@@ -834,6 +834,9 @@
     $('btnRefreshPopular').addEventListener('click', loadPopularVideos);
     $('btnToggleDesc').addEventListener('click', toggleDesc);
     $('btnBackResult').addEventListener('click', () => showPage(pageResult));
+    $('btnQrLogin') && $('btnQrLogin').addEventListener('click', startQrLogin);
+    $('btnQrRefresh') && $('btnQrRefresh').addEventListener('click', startQrLogin);
+    $('btnClearCookies') && $('btnClearCookies').addEventListener('click', clearBiliLogin);
 
     // 弹窗背景点击关闭
     configModal.addEventListener('click', (e) => { if (e.target === configModal) closeConfig(); });
