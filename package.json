@@ -1,0 +1,14 @@
+{
+  "name": "bilidown-web",
+  "version": "1.0.0",
+  "description": "B站视频解析工具 - 本地后端 (localhost:2233) + 静态前端",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=19"
+  },
+  "license": "MIT"
+}

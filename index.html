@@ -199,8 +199,8 @@
       </div>
       <div class="modal-body">
         <label class="form-label" for="apiUrlInput">API 地址</label>
-        <input type="url" id="apiUrlInput" class="form-input" placeholder="https://linhongyu3.qzz.io" value="https://linhongyu3.qzz.io">
-        <p class="form-hint">请输入解析API的基础地址，需支持 HTTPS。</p>
+          <input type="url" id="apiUrlInput" class="form-input" placeholder="http://localhost:2233" value="http://localhost:2233">
+        <p class="form-hint">本地后端默认 <code>http://localhost:2233</code>；远程后端则需支持 HTTPS。</p>
 
         <label class="form-label" for="biliCookiesInput">B站登录 Cookie（可选）</label>
         <textarea id="biliCookiesInput" class="form-input" rows="4" placeholder="SESSDATA=xxx; bili_jct=yyy; buvid3=zzz; buvid4=www" style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
@@ -277,9 +277,9 @@
     </div>
   </footer>
 
-  <script src="js/parser.js"></script>
-  <script src="js/qrcode.js"></script>
-  <script src="js/api.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/parser.js?v=4"></script>
+  <script src="js/qrcode.js?v=4"></script>
+  <script src="js/api.js?v=4"></script>
+  <script src="js/app.js?v=8"></script>
 </body>
 </html>

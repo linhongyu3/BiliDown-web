@@ -149,17 +149,18 @@
 
     var info = {};
 
-    info.url = data.url || data.durl || '';
-    info.durl = data.durl || data.dash || [];
+    info.url = data.url || '';
+    info.durl = data.durl || [];
     info.acceptQuality = data.accept_quality || data.accept_format || [];
     info.acceptDescription = data.accept_description || [];
     info.quality = data.quality || data.current_quality || 0;
     info.format = data.format || '';
     info.dash = data.dash || null;
 
-    // 如果 durl 是数组，把单个 URL 提取出来
-    if (info.url === '' && info.durl && info.durl.length > 0) {
-      info.url = info.durl[0].url || '';
+    // 如果 durl 是数组，把单个 URL 提取出来 (durl: [{url, ...}])
+    if (!info.url && info.durl && info.durl.length > 0) {
+      var firstUrl = typeof info.durl[0] === 'string' ? info.durl[0] : (info.durl[0] && info.durl[0].url) || '';
+      info.url = firstUrl;
     }
 
     // 清晰度列表
@@ -285,6 +286,26 @@
         // 保留 parsed 信息供前端使用
         normalized._parsed = raw.parsed || null;
         normalized._contentType = raw.content ? raw.content.type : 'video';
+        normalized.qualities = [];
+
+        // 拉取播放地址构建清晰度列表（video.qualities 需由 playurl 填充）
+        var bvid = normalized.bvid || videoData.bvid || '';
+        var pg = (normalized.pages && normalized.pages[0]) || {};
+        var cid = pg.cid || videoData.cid || '';
+        if (bvid && cid) {
+          return apiCallGet('/api/video/playurl', { bvid: bvid, cid: cid }).then(function(p) {
+            if (p && p.code === 0 && p.data) {
+              var inner = p.data.data || p.data;
+              var qs = inner.accept_quality || [];
+              var descs = inner.accept_description || [];
+              for (var qi = 0; qi < descs.length; qi++) {
+                normalized.qualities.push({ code: qs[qi] !== undefined ? qs[qi] : 0, name: descs[qi], qn: qs[qi] });
+              }
+            }
+            return { code: 0, message: 'ok', data: normalized };
+          });
+        }
+
         return {
           code: 0,
           message: 'ok',
@@ -321,15 +342,18 @@
    * 获取播放地址
    * GET /api/video/playurl?bvid=xxx&cid=xxx
    */
-  API.getPlayUrl = function(bvid, cid) {
-    return apiCallGet('/api/video/playurl', {
+  API.getPlayUrl = function(bvid, cid, qn) {
+    var params = {
       bvid: bvid,
-      cid: cid
-    }).then(function(data) {
-      if (data && data.code !== -1) {
-        return normalizePlayInfo(data);
-      }
-      return data;
+      cid: cid,
+      fnval: 0   // 使用 durl (mp4 直链)，便于原生 <video> 直接播放
+    };
+    if (qn) params.qn = qn;
+    return apiCallGet('/api/video/playurl', params).then(function(result) {
+      // 解包: worker jsonOk => {code, data: <B站响应>}, B站响应 => {code, data: playurl内容}
+      if (!result) return result;
+      var payload = (result.data && result.data.data) ? result.data.data : result.data;
+      return normalizePlayInfo(payload);
     });
   };
 
@@ -533,13 +557,13 @@
   // ============================================================
 
   (function init() {
+    // 本地后端默认地址；localStorage 无记录时回退到这里，避免空地址导致解析失败
+    global.BILIDOWN_DEFAULT_API = 'http://localhost:2233';
     try {
       var savedUrl = global.localStorage.getItem('bilidown_api_url');
-      if (savedUrl) {
-        global.BILIDOWN_API_URL = savedUrl;
-      }
+      global.BILIDOWN_API_URL = (savedUrl && savedUrl.trim()) ? savedUrl.replace(/\/+$/, '') : global.BILIDOWN_DEFAULT_API;
     } catch (e) {
-      // localStorage 不可用时忽略
+      global.BILIDOWN_API_URL = global.BILIDOWN_DEFAULT_API;
     }
   })();
 

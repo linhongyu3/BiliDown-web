@@ -72,12 +72,13 @@
     }
 
     // 2. BV号 (完整URL或纯BV号)
+    // 注意: BV号大小写敏感 (base58 编码区分大小写)，必须保留原始大小写
     RE_BV.lastIndex = 0;
     m = RE_BV.exec(trimmed);
     if (m) {
       return {
         type: 'bv',
-        value: m[0].toUpperCase(),
+        value: m[0],
         raw: m[0]
       };
     }

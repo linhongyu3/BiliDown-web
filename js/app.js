@@ -367,8 +367,9 @@
       }
     } catch (err) {
       hideLoading();
-      console.warn('API 请求失败，使用模拟数据:', err);
-      useMockData(input);
+      const msg = (err && err.message) || '未知错误';
+      console.error('解析失败:', err);
+      showToast('解析失败：' + msg);
     }
   }
 
@@ -544,25 +545,37 @@
     const player = $('videoPlayer');
     const playerTitle = $('playerTitle');
 
-    // 尝试构建视频流 URL（实际项目中需替换为真实 API 返回的流地址）
-    const apiBase = getApiBase();
-    const streamUrl = video.bvid
-      ? `${apiBase}/stream/${video.bvid}?p=${STATE.currentPage}&q=${STATE.currentQuality || '64'}`
-      : '';
+    const page = (video.pages && video.pages[STATE.currentPage - 1]) || {};
+    const cid = page.cid;
+    const bvid = video.bvid || '';
 
-    if (streamUrl) {
-      player.src = streamUrl;
-    } else {
-      // 演示：使用一个测试视频
-      player.src = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
-    }
+    // 无论当前是否已有清晰度，都根据所选清晰度重新拉取真实播放地址
+    showLoading('获取播放地址...');
+    const qn = STATE.currentQuality || '64';
 
-    playerTitle.textContent = video.title || '正在播放';
-    showPage(pagePlayer);
-
-    player.load();
-    player.play().catch(() => {
-      // 自动播放可能被阻止
+    Promise.all([
+      window.API && API.getPlayUrl ? API.getPlayUrl(bvid, cid, qn) : Promise.resolve(null)
+    ]).then(function(results) {
+      hideLoading();
+      const playInfo = results[0];
+      if (!playInfo || !playInfo.url) {
+        showToast('无法获取播放地址');
+        return;
+      }
+      playerTitle.textContent = video.title || '正在播放';
+      // crossOrigin=anonymous 让媒体请求走 CORS（后端返回 ACAO:*），避免跨源/ORB opaque 拦截
+      player.crossOrigin = 'anonymous';
+      // 走后端流代理（同源），并附上已解析好的直链，避免代理二次换质
+      const apiBase = getApiBase();
+      player.src = `${apiBase}/api/video/stream?url=${encodeURIComponent(playInfo.url)}&qn=${encodeURIComponent(qn)}`;
+      showPage(pagePlayer);
+      player.load();
+      player.play().catch(() => {
+        // 自动播放可能被阻止
+      });
+    }).catch(function() {
+      hideLoading();
+      showToast('获取播放地址失败');
     });
   }
 
@@ -606,7 +619,54 @@
       showToast('请先解析视频');
       return;
     }
-    showToast('下载功能需要后端 API 支持');
+
+    const page = (video.pages && video.pages[STATE.currentPage - 1]) || {};
+    const cid = page.cid;
+    const bvid = video.bvid || '';
+    const partName = page.part || '';
+    const qn = STATE.currentQuality || '64';
+
+    if (!cid) {
+      showToast('无法获取该分P的视频 ID');
+      return;
+    }
+
+    showLoading('获取下载地址...');
+
+    // 前端带 Cookie 解析出所选清晰度的直链，再交给后端流代理下载（绕防盗链）
+    Promise.resolve(window.API && API.getPlayUrl ? API.getPlayUrl(bvid, cid, qn) : Promise.resolve(null))
+      .then(function (playInfo) {
+        if (!playInfo || !playInfo.url) {
+          hideLoading();
+          showToast('无法获取下载地址');
+          return;
+        }
+
+        const apiBase = getApiBase();
+        const streamUrl = `${apiBase}/api/video/stream?url=${encodeURIComponent(playInfo.url)}&qn=${encodeURIComponent(qn)}`;
+
+        // 拼接文件名：标题 + 分P名 + 清晰度
+        const qIdx = playInfo.acceptQuality ? playInfo.acceptQuality.indexOf(Number(qn)) : -1;
+        const qLabel = (playInfo.acceptDescription && qIdx >= 0) ? playInfo.acceptDescription[qIdx] : (qn + 'P');
+        const cleanTitle = (video.title || 'video').replace(/[\\/:*?"<>|]/g, '_');
+        const cleanPart = (partName && partName !== cleanTitle ? '-' + partName : '').replace(/[\\/:*?"<>|]/g, '_');
+        const filename = `${cleanTitle}${cleanPart}-${qLabel}.mp4`;
+
+        showLoading('正在下载（大文件请耐心等待）...');
+        // 同源<a download>直链：浏览器边下边存，显示真实进度，避免整片缓冲到内存
+        const a = document.createElement('a');
+        a.href = streamUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        hideLoading();
+        showToast('开始下载: ' + filename, 3500);
+      })
+      .catch(function (err) {
+        hideLoading();
+        showToast('下载失败: ' + (err.message || err));
+      });
   }
 
   // --- 弹窗控制 ---

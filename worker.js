@@ -660,6 +660,65 @@ async function handleDownload(url, env, cookies) {
 }
 
 /**
+ * GET /api/video/stream?bvid=xxx&cid=xxx&qn=64
+ * 代理视频流，绕过浏览器 CORS/ORB 拦截及 B站防盗链。
+ * 前端把 bvid/cid/qn 传进来，后端取播放地址后转发视频字节流（带 Referer）。
+ */
+async function handleVideoStream(request, url, env, cookies) {
+  const bvid = url.searchParams.get('bvid');
+  const cid = url.searchParams.get('cid');
+  const qn = url.searchParams.get('qn') || '64';
+  const aid = url.searchParams.get('aid');
+  // 可选：前端已解析好的直链。直接代理它，避免二次换质（媒体元素无法携带 X-Bili-Cookies）
+  const directUrl = url.searchParams.get('url');
+
+  if (!directUrl && (!bvid && !aid)) {
+    return jsonError('缺视频地址，提供 bvid/aid+ cid 或 url 参数');
+  }
+
+  let streamUrl = directUrl;
+  if (!streamUrl) {
+    const params = { cid, qn, fnval: '0', fourk: '1' };
+    if (bvid) params.bvid = bvid;
+    if (aid) params.aid = aid;
+    const playData = await biliFetch('/x/player/wbi/playurl', params, env, true, cookies);
+    const inner = playData?.data || playData;
+    const durl = inner?.durl;
+    streamUrl = (durl && durl[0] && durl[0].url) || '';
+  }
+
+  if (!streamUrl) {
+    return jsonError('无法获取视频流地址');
+  }
+
+  // 转发视频流。必须透传浏览器的 Range 请求头，并透传上游 206 状态，
+  // 否则播放器无法建立播放与拖动进度。
+  const headers = await buildHeaders(env, cookies);
+  const range = request.headers.get('Range');
+  if (range) headers['Range'] = range;
+
+  const upstream = await fetch(streamUrl, { headers });
+
+  const responseHeaders = {
+    ...corsHeaders(),
+    'Content-Type': upstream.headers.get('content-type') || 'video/mp4',
+  };
+
+  // 透传 206 相关头，保证分段传输与拖动进度正确
+  const passThrough = ['content-length', 'accept-ranges', 'content-range'];
+  for (const h of passThrough) {
+    const v = upstream.headers.get(h);
+    if (v) responseHeaders[h] = v;
+  }
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: responseHeaders,
+    statusText: upstream.statusText,
+  });
+}
+
+/**
  * GET /api/fav/list?id=xxx
  * 获取收藏夹内容
  */
@@ -888,6 +947,10 @@ export default {
         // 播放地址 (WBI 签名)
         case '/api/video/playurl':
           return await handlePlayurl(url, env, cookies);
+
+        // 视频流代理 (绕过 CORS/防盗链)
+        case '/api/video/stream':
+          return await handleVideoStream(request, url, env, cookies);
 
         // 热门视频
         case '/api/popular':
