@@ -11,6 +11,7 @@
 
 const API_BASE = 'https://api.bilibili.com';
 const PGC_API_BASE = 'https://api.bilibili.com/pgc/view/web/season';
+const PASSPORT_BASE = 'https://passport.bilibili.com';
 
 const MIXIN_KEY_ENC_TAB = [
   46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
@@ -675,6 +676,97 @@ async function handleFavList(url, env, cookies) {
   return jsonOk(data);
 }
 
+// ============================================================
+// B站扫码登录 (解决数据中心 IP 被 B站风控拦截的 412 问题)
+// ============================================================
+
+// 从 Response 提取所有 Set-Cookie，序列化为 "name=value; " 字符串
+function extractCookiesFromSetCookie(resp) {
+  const getSetCookie = typeof resp.headers.getSetCookie === 'function'
+    ? resp.headers.getSetCookie.call(resp.headers)
+    : (resp.headers.get('set-cookie') ? [resp.headers.get('set-cookie')] : []);
+  const map = {}; // 按 name 去重，保留最后值
+  for (const sc of getSetCookie || []) {
+    const pair = sc.split(';')[0];
+    const idx = pair.indexOf('=');
+    if (idx > 0) {
+      map[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim();
+    }
+  }
+  return Object.keys(map).map((k) => k + '=' + map[k]).join('; ');
+}
+
+/**
+ * POST /api/auth/qr/create
+ * 生成扫码登录二维码
+ */
+async function handleQrCreate() {
+  try {
+    const resp = await fetch(`${PASSPORT_BASE}/x/passport-login/web/qrcode/generate`, {
+      headers: { 'User-Agent': DEFAULT_UA, 'Referer': DEFAULT_REFERER },
+    });
+    const body = await resp.json();
+    if (body.code !== 0) {
+      return jsonError(`生成二维码失败: ${body.message || '未知错误'}`);
+    }
+    const data = body.data || {};
+    // url 中的 \u0026 是 & 的 unicode 转义，需还原
+    const loginUrl = String(data.url || '').replace(/\\u0026/g, '&');
+    return jsonOk({
+      qrcode_key: data.qrcode_key || '',
+      url: loginUrl,
+      // 生成过程中 B站可能下发 buvid 等 cookie，转交前端，轮询时带回保持一致
+      cookies: extractCookiesFromSetCookie(resp),
+    });
+  } catch (err) {
+    return jsonError('生成二维码失败: ' + err.message);
+  }
+}
+
+/**
+ * POST /api/auth/qr/poll
+ * 轮询扫码状态；登录成功(data.code===0)时提取 SESSDATA 等 Cookie
+ */
+async function handleQrPoll(request) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError('请求体必须是 JSON 格式');
+  }
+  const key = body.qrcode_key || '';
+  if (!key) {
+    return jsonError('缺少 qrcode_key 参数');
+  }
+
+  try {
+    const headers = { 'User-Agent': DEFAULT_UA, 'Referer': DEFAULT_REFERER };
+    const authCookies = body.cookies || '';
+    if (authCookies) headers['Cookie'] = authCookies;
+
+    const resp = await fetch(
+      `${PASSPORT_BASE}/x/passport-login/web/qrcode/poll?qrcode_key=${encodeURIComponent(key)}`,
+      { headers }
+    );
+    const json = await resp.json();
+    const d = json.data || {};
+
+    let cookies = '';
+    if (d.code === 0) {
+      cookies = extractCookiesFromSetCookie(resp);
+    }
+
+    return jsonOk({
+      code: d.code,            // 86101未扫码 86090已扫码待确认 86038已失效 0成功
+      message: d.message || '',
+      url: d.url || '',
+      cookies,
+    });
+  } catch (err) {
+    return jsonError('轮询失败: ' + err.message);
+  }
+}
+
 /**
  * GET /api/ping
  * 连通性测试
@@ -816,6 +908,20 @@ export default {
         // 收藏夹
         case '/api/fav/list':
           return await handleFavList(url, env, cookies);
+
+        // 扫码登录 - 生成二维码 (POST)
+        case '/api/auth/qr/create':
+          if (request.method !== 'POST') {
+            return jsonError('仅支持 POST 方法', -1, 405);
+          }
+          return await handleQrCreate();
+
+        // 扫码登录 - 轮询状态 (POST)
+        case '/api/auth/qr/poll':
+          if (request.method !== 'POST') {
+            return jsonError('仅支持 POST 方法', -1, 405);
+          }
+          return await handleQrPoll(request);
 
         // 未知路由
         default:
