@@ -30,6 +30,15 @@
       fetchOptions.headers = fetchOptions.headers || {};
       fetchOptions.headers['Content-Type'] = fetchOptions.headers['Content-Type'] || 'application/json';
 
+      // 附加用户 B站 Cookie，用于让后端绕过 B站对数据中心 IP 的 412 拦截
+      var biliCookies = global.BILIDOWN_BIli_COOKIES || '';
+      try {
+        biliCookies = biliCookies || (global.localStorage.getItem('bilidown_cookies') || '');
+      } catch (e) {}
+      if (biliCookies) {
+        fetchOptions.headers['X-Bili-Cookies'] = biliCookies;
+      }
+
       fetch(url, fetchOptions).then(function(response) {
         clearTimeout(timer);
         if (!response.ok) {
@@ -448,6 +457,37 @@
    */
   API.getApiUrl = function() {
     return global.BILIDOWN_API_URL || '';
+  };
+
+  /**
+   * 保存 B站登录 Cookie
+   * 用于后端绕过 B站对数据中心 IP 的 412 拦截
+   * cookies 形如: "SESSDATA=xxx; bili_jct=yyy; buvid3=zzz; buvid4=www"
+   */
+  API.setBiliCookies = function(cookies) {
+    cookies = (cookies || '').trim();
+    global.BILIDOWN_BIli_COOKIES = cookies;
+    try {
+      if (cookies) {
+        global.localStorage.setItem('bilidown_cookies', cookies);
+      } else {
+        global.localStorage.removeItem('bilidown_cookies');
+      }
+    } catch (e) {}
+  };
+
+  /**
+   * 获取已保存的 B站登录 Cookie
+   */
+  API.getBiliCookies = function() {
+    if (global.BILIDOWN_BIli_COOKIES) {
+      return global.BILIDOWN_BIli_COOKIES;
+    }
+    try {
+      return global.localStorage.getItem('bilidown_cookies') || '';
+    } catch (e) {
+      return '';
+    }
   };
 
   // ============================================================

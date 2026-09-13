@@ -202,6 +202,10 @@
         <input type="url" id="apiUrlInput" class="form-input" placeholder="https://linhongyu3.qzz.io" value="https://linhongyu3.qzz.io">
         <p class="form-hint">请输入解析API的基础地址，需支持 HTTPS。</p>
 
+        <label class="form-label" for="biliCookiesInput">B站登录 Cookie（可选）</label>
+        <textarea id="biliCookiesInput" class="form-input" rows="4" placeholder="SESSDATA=xxx; bili_jct=yyy; buvid3=zzz; buvid4=www" style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
+        <p class="form-hint">从已登录的 <code>bilibili.com</code> 浏览器中复制 Cookie（需含 SESSDATA 与 buvid）。数据中心 IP 下可选用于绕过 B站 412 拦截。</p>
+
         <label class="form-label" for="playerMode">播放模式</label>
         <select id="playerMode" class="form-input">
           <option value="direct">直接播放</option>

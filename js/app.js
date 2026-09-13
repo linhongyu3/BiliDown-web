@@ -613,6 +613,9 @@
     $('apiUrlInput').value = saved || '';
     const mode = localStorage.getItem('bilidown_player_mode') || 'direct';
     $('playerMode').value = mode;
+    // 回填已保存的 B站 Cookie
+    const cookies = (window.API && typeof API.getBiliCookies === 'function') ? API.getBiliCookies() : '';
+    $('biliCookiesInput').value = cookies || '';
     configModal.style.display = 'flex';
   }
 
@@ -631,6 +634,20 @@
         localStorage.setItem('bilidown_api_url', apiUrl);
         window.BILIDOWN_API_URL = apiUrl;
       }
+    }
+    // 保存 B站登录 Cookie（可选，用于绕过 412）
+    const biliCookies = $('biliCookiesInput').value.trim();
+    if (window.API && typeof API.setBiliCookies === 'function') {
+      API.setBiliCookies(biliCookies);
+    } else {
+      try {
+        if (biliCookies) {
+          localStorage.setItem('bilidown_cookies', biliCookies);
+        } else {
+          localStorage.removeItem('bilidown_cookies');
+        }
+        window.BILIDOWN_BIli_COOKIES = biliCookies;
+      } catch (e) {}
     }
     localStorage.setItem('bilidown_player_mode', mode);
     closeConfig();

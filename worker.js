@@ -26,6 +26,45 @@ const DEFAULT_REFERER = 'https://www.bilibili.com';
 const WBI_CACHE_TTL = 3600; // 秒 (1 小时)
 
 // ============================================================
+// 访客 Cookie (绕过 412 反爬)
+// ============================================================
+
+// B站要求请求携带真实的 buvid3 / b_nut 等 Cookie，
+// 否则从数据中心 IP (Cloudflare Workers) 访问会被 B站以 412 拦截。
+// 伪造的 buvid3 无法通过校验，需从 finger/spi 接口获取真实 buvid。
+let guestCookies = { buvid3: null, buvid4: null };
+
+// 从 /x/frontend/finger/spi 获取真实 buvid3/buvid4 (未登录也能获取)
+async function refreshGuestCookie() {
+  try {
+    const resp = await fetch(`${API_BASE}/x/frontend/finger/spi`, {
+      headers: { 'User-Agent': DEFAULT_UA },
+    });
+    if (resp.ok) {
+      const body = await resp.json();
+      const b3 = body?.data?.b_3;
+      const b4 = body?.data?.b_4;
+      if (b3) {
+        guestCookies.buvid3 = b3;
+        guestCookies.buvid4 = b4 || '';
+      }
+    }
+  } catch {
+    // 获取失败时保持已有值
+  }
+}
+
+// 获取访客 Cookie 字符串 (首次获取真实 buvid 并缓存)
+async function getGuestCookie() {
+  if (!guestCookies.buvid3) {
+    await refreshGuestCookie();
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const b4 = guestCookies.buvid4 ? `; buvid4=${guestCookies.buvid4}` : '';
+  return `buvid3=${guestCookies.buvid3 || ''}; b_nut=${now}${b4}`;
+}
+
+// ============================================================
 // WBI 签名模块
 // ============================================================
 
@@ -56,13 +95,13 @@ let wbiCache = {
 };
 
 // 从 nav 接口获取 WBI keys
-async function getWbiKeys(env) {
+async function getWbiKeys(env, cookies) {
   const now = Math.floor(Date.now() / 1000);
   if (wbiCache.expiresAt > now && wbiCache.mixinKey) {
     return wbiCache.mixinKey;
   }
 
-  const headers = buildHeaders(env);
+  const headers = await buildHeaders(env, cookies);
   const resp = await fetch(`${API_BASE}/x/web-interface/nav`, { headers });
 
   if (!resp.ok) {
@@ -102,8 +141,8 @@ function extractKeyFromUrl(url) {
 }
 
 // 对请求参数进行 WBI 签名
-async function signParams(params, env) {
-  const mixinKey = await getWbiKeys(env);
+async function signParams(params, env, cookies) {
+  const mixinKey = await getWbiKeys(env, cookies);
   const currTime = Math.floor(Date.now() / 1000);
 
   const signed = { ...params, wts: currTime };
@@ -134,15 +173,28 @@ async function signParams(params, env) {
 // HTTP 请求工具
 // ============================================================
 
-function buildHeaders(env) {
+async function buildHeaders(env, cookies) {
   const headers = {
     'User-Agent': env?.BILI_UA || DEFAULT_UA,
     Referer: DEFAULT_REFERER,
   };
 
+  // 用户登录 Cookie 优先（含 SESSDATA + buvid 指纹），可从数据中心 IP 绕过 412
+  if (cookies) {
+    let merged = cookies;
+    // 若用户 Cookie 缺少 buvid3，补充访客 buvid 指纹
+    if (!/buvid3=/i.test(cookies)) {
+      merged = `${await getGuestCookie()}; ${cookies}`;
+    }
+    headers['Cookie'] = merged;
+  } else {
+    // 无用户 Cookie 时使用访客 Cookie（数据中心 IP 下可能返回 412）
+    headers['Cookie'] = await getGuestCookie();
+  }
+
   const sessdata = env?.BILI_SESSDATA;
-  if (sessdata) {
-    headers['Cookie'] = `SESSDATA=${sessdata}`;
+  if (sessdata && headers['Cookie'].indexOf('SESSDATA') === -1) {
+    headers['Cookie'] += `; SESSDATA=${sessdata}`;
   }
 
   return headers;
@@ -152,7 +204,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Bili-Cookies',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -179,17 +231,18 @@ function jsonError(message, code = -1, httpStatus = 200) {
   });
 }
 
-async function biliFetch(path, params, env, needSign = true) {
+async function biliFetch(path, params, env, needSign = true, cookies) {
   let finalParams = params;
 
   if (needSign) {
-    finalParams = await signParams(params, env);
+    finalParams = await signParams(params, env, cookies);
   }
 
   const searchParams = new URLSearchParams(finalParams);
   const url = `${API_BASE}${path}?${searchParams.toString()}`;
 
-  const resp = await fetch(url, { headers: buildHeaders(env) });
+  const headers = await buildHeaders(env, cookies);
+  const resp = await fetch(url, { headers });
   const data = await resp.json();
 
   return data;
@@ -316,13 +369,13 @@ async function resolveShortUrl(shortCode) {
 /**
  * 根据解析结果获取视频/番剧信息
  */
-async function fetchContentInfo(parseResult, env) {
+async function fetchContentInfo(parseResult, env, cookies) {
   const { type, id } = parseResult;
 
   switch (type) {
     case 'bv': {
       const params = { bvid: id };
-      const data = await biliFetch('/x/web-interface/view', params, env, true);
+      const data = await biliFetch('/x/web-interface/view', params, env, true, cookies);
       if (data.code !== 0) {
         throw new Error(`获取视频信息失败: ${data.message || '未知错误'}`);
       }
@@ -331,7 +384,7 @@ async function fetchContentInfo(parseResult, env) {
 
     case 'av': {
       const params = { aid: id };
-      const data = await biliFetch('/x/web-interface/view', params, env, true);
+      const data = await biliFetch('/x/web-interface/view', params, env, true, cookies);
       if (data.code !== 0) {
         throw new Error(`获取视频信息失败: ${data.message || '未知错误'}`);
       }
@@ -340,8 +393,9 @@ async function fetchContentInfo(parseResult, env) {
 
     case 'ep': {
       const params = { ep_id: id };
+      const headers = await buildHeaders(env, cookies);
       const resp = await fetch(`${PGC_API_BASE}?${new URLSearchParams(params)}`, {
-        headers: buildHeaders(env),
+        headers,
       });
       const data = await resp.json();
       if (data.code !== 0) {
@@ -352,8 +406,9 @@ async function fetchContentInfo(parseResult, env) {
 
     case 'ss': {
       const params = { season_id: id };
+      const headers = await buildHeaders(env, cookies);
       const resp = await fetch(`${PGC_API_BASE}?${new URLSearchParams(params)}`, {
-        headers: buildHeaders(env),
+        headers,
       });
       const data = await resp.json();
       if (data.code !== 0) {
@@ -369,7 +424,7 @@ async function fetchContentInfo(parseResult, env) {
       if (!subResult) {
         throw new Error(`无法解析短链接指向的内容: ${resolvedUrl}`);
       }
-      return fetchContentInfo(subResult, env);
+      return fetchContentInfo(subResult, env, cookies);
     }
 
     default:
@@ -385,7 +440,7 @@ async function fetchContentInfo(parseResult, env) {
  * POST /api/parse
  * 解析链接，返回视频/番剧信息
  */
-async function handleParse(request, env) {
+async function handleParse(request, env, cookies) {
   let body;
   try {
     body = await request.json();
@@ -404,7 +459,7 @@ async function handleParse(request, env) {
   }
 
   try {
-    const info = await fetchContentInfo(parsed, env);
+    const info = await fetchContentInfo(parsed, env, cookies);
     return jsonOk({
       parsed: parsed,
       content: info,
@@ -417,7 +472,7 @@ async function handleParse(request, env) {
 /**
  * GET /api/video/info?bvid=xxx
  */
-async function handleVideoInfo(url, env) {
+async function handleVideoInfo(url, env, cookies) {
   const bvid = url.searchParams.get('bvid');
   const aid = url.searchParams.get('aid');
 
@@ -429,7 +484,7 @@ async function handleVideoInfo(url, env) {
   if (bvid) params.bvid = bvid;
   if (aid) params.aid = aid;
 
-  const data = await biliFetch('/x/web-interface/view', params, env, true);
+  const data = await biliFetch('/x/web-interface/view', params, env, true, cookies);
   return jsonOk(data);
 }
 
@@ -437,11 +492,11 @@ async function handleVideoInfo(url, env) {
  * GET /api/video/playurl?bvid=xxx&cid=xxx
  * 获取视频播放地址 (WBI 签名)
  */
-async function handlePlayurl(url, env) {
+async function handlePlayurl(url, env, cookies) {
   const bvid = url.searchParams.get('bvid');
   const cid = url.searchParams.get('cid');
   const aid = url.searchParams.get('aid');
-  const qn = url.searchParams.get('qn') || '80'; // 默认 80 流畅
+  const qn = url.searchParams.get('qn') || '80'; // 默认 80
   const fnval = url.searchParams.get('fnval') || '4048'; // DASH + HDR
 
   if ((!bvid && !aid) || !cid) {
@@ -452,7 +507,7 @@ async function handlePlayurl(url, env) {
   if (bvid) params.bvid = bvid;
   if (aid) params.aid = aid;
 
-  const data = await biliFetch('/x/player/wbi/playurl', params, env, true);
+  const data = await biliFetch('/x/player/wbi/playurl', params, env, true, cookies);
   return jsonOk(data);
 }
 
@@ -460,12 +515,12 @@ async function handlePlayurl(url, env) {
  * GET /api/popular
  * 获取热门视频
  */
-async function handlePopular(url, env) {
+async function handlePopular(url, env, cookies) {
   const pn = url.searchParams.get('pn') || '1';
   const ps = url.searchParams.get('ps') || '30';
 
   const params = { pn, ps };
-  const data = await biliFetch('/x/web-interface/popular', params, env, true);
+  const data = await biliFetch('/x/web-interface/popular', params, env, true, cookies);
   return jsonOk(data);
 }
 
@@ -473,7 +528,7 @@ async function handlePopular(url, env) {
  * GET /api/season/info?epid=xxx&ssid=xxx
  * 获取番剧信息
  */
-async function handleSeasonInfo(url, env) {
+async function handleSeasonInfo(url, env, cookies) {
   const epid = url.searchParams.get('epid');
   const ssid = url.searchParams.get('ssid');
 
@@ -485,8 +540,9 @@ async function handleSeasonInfo(url, env) {
   if (epid) params.ep_id = epid;
   if (ssid) params.season_id = ssid;
 
+  const headers = await buildHeaders(env, cookies);
   const resp = await fetch(`${PGC_API_BASE}?${new URLSearchParams(params)}`, {
-    headers: buildHeaders(env),
+    headers,
   });
   const data = await resp.json();
   return jsonOk(data);
@@ -495,7 +551,7 @@ async function handleSeasonInfo(url, env) {
 /**
  * GET /api/search?keyword=xxx
  */
-async function handleSearch(url, env) {
+async function handleSearch(url, env, cookies) {
   const keyword = url.searchParams.get('keyword');
   const searchType = url.searchParams.get('type') || 'video';
   const pn = url.searchParams.get('pn') || '1';
@@ -510,7 +566,7 @@ async function handleSearch(url, env) {
     page: pn,
   };
 
-  const data = await biliFetch('/x/web-interface/search/type', params, env, true);
+  const data = await biliFetch('/x/web-interface/search/type', params, env, true, cookies);
   return jsonOk(data);
 }
 
@@ -518,7 +574,7 @@ async function handleSearch(url, env) {
  * POST /api/resolve
  * 短链接解析 + 返回信息
  */
-async function handleResolve(request, env) {
+async function handleResolve(request, env, cookies) {
   let body;
   try {
     body = await request.json();
@@ -544,7 +600,7 @@ async function handleResolve(request, env) {
       // 用解析后的 URL 重新获取信息
       const subParsed = parseLink(resolvedUrl);
       if (subParsed) {
-        const info = await fetchContentInfo(subParsed, env);
+        const info = await fetchContentInfo(subParsed, env, cookies);
         return jsonOk({
           original: url,
           resolved_url: resolvedUrl,
@@ -555,7 +611,7 @@ async function handleResolve(request, env) {
     }
 
     // 非短链接直接获取信息
-    const info = await fetchContentInfo(parsed, env);
+    const info = await fetchContentInfo(parsed, env, cookies);
     return jsonOk({
       original: url,
       resolved_url: resolvedUrl,
@@ -571,7 +627,7 @@ async function handleResolve(request, env) {
  * GET /api/download?bvid=xxx&cid=xxx
  * 获取下载地址
  */
-async function handleDownload(url, env) {
+async function handleDownload(url, env, cookies) {
   const bvid = url.searchParams.get('bvid');
   const cid = url.searchParams.get('cid');
   const aid = url.searchParams.get('aid');
@@ -591,7 +647,7 @@ async function handleDownload(url, env) {
   if (bvid) params.bvid = bvid;
   if (aid) params.aid = aid;
 
-  const data = await biliFetch('/x/player/wbi/playurl', params, env, true);
+  const data = await biliFetch('/x/player/wbi/playurl', params, env, true, cookies);
   return jsonOk(data);
 }
 
@@ -599,7 +655,7 @@ async function handleDownload(url, env) {
  * GET /api/fav/list?id=xxx
  * 获取收藏夹内容
  */
-async function handleFavList(url, env) {
+async function handleFavList(url, env, cookies) {
   const mediaId = url.searchParams.get('id');
   const pn = url.searchParams.get('pn') || '1';
   const ps = url.searchParams.get('ps') || '20';
@@ -615,7 +671,7 @@ async function handleFavList(url, env) {
     platform: 'web',
   };
 
-  const data = await biliFetch('/x/v3/fav/resource/list', params, env, true);
+  const data = await biliFetch('/x/v3/fav/resource/list', params, env, true, cookies);
   return jsonOk(data);
 }
 
@@ -707,6 +763,9 @@ export default {
     }
 
     try {
+      // 用户登录 Cookie：由前端传入，用于绕过 B站对数据中心 IP 的 412 拦截
+      const cookies = request.headers.get('X-Bili-Cookies') || '';
+
       switch (path) {
         // 连通性测试
         case '/api/ping':
@@ -721,42 +780,42 @@ export default {
           if (request.method !== 'POST') {
             return jsonError('仅支持 POST 方法', -1, 405);
           }
-          return await handleParse(request, env);
+          return await handleParse(request, env, cookies);
 
         // 视频信息
         case '/api/video/info':
-          return await handleVideoInfo(url, env);
+          return await handleVideoInfo(url, env, cookies);
 
         // 播放地址 (WBI 签名)
         case '/api/video/playurl':
-          return await handlePlayurl(url, env);
+          return await handlePlayurl(url, env, cookies);
 
         // 热门视频
         case '/api/popular':
-          return await handlePopular(url, env);
+          return await handlePopular(url, env, cookies);
 
         // 番剧信息
         case '/api/season/info':
-          return await handleSeasonInfo(url, env);
+          return await handleSeasonInfo(url, env, cookies);
 
         // 搜索
         case '/api/search':
-          return await handleSearch(url, env);
+          return await handleSearch(url, env, cookies);
 
         // 短链接解析 (POST)
         case '/api/resolve':
           if (request.method !== 'POST') {
             return jsonError('仅支持 POST 方法', -1, 405);
           }
-          return await handleResolve(request, env);
+          return await handleResolve(request, env, cookies);
 
         // 下载地址
         case '/api/download':
-          return await handleDownload(url, env);
+          return await handleDownload(url, env, cookies);
 
         // 收藏夹
         case '/api/fav/list':
-          return await handleFavList(url, env);
+          return await handleFavList(url, env, cookies);
 
         // 未知路由
         default:
