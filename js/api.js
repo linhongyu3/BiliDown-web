@@ -195,6 +195,7 @@
 
   /**
    * 执行 API 请求并统一处理响应
+   * 始终返回 {code, message, data} 格式
    */
   function apiCall(method, path, params, body, timeout) {
     var url = buildUrl(path, params);
@@ -207,19 +208,25 @@
 
     return request(url, options, timeout).then(function(resp) {
       if (resp && resp.code === 0) {
-        return resp.data;
+        // 成功：统一返回格式
+        return {
+          code: 0,
+          message: resp.message || 'ok',
+          data: resp.data !== undefined ? resp.data : null
+        };
       }
       // 业务错误
       var errMsg = resp && resp.message ? resp.message : '\u672a\u77e5\u9519\u8bef'; // 未知错误
       return {
-        code: -1,
+        code: resp && resp.code !== undefined ? resp.code : -1,
         message: errMsg,
         data: null
       };
     }).catch(function(err) {
       return {
         code: -1,
-        message: err.message || '\u7f51\u7edc\u5f02\u5e38' // 网络异常
+        message: err.message || '\u7f51\u7edc\u5f02\u5e38', // 网络异常
+        data: null
       };
     });
   }
@@ -241,22 +248,46 @@
   /**
    * 解析链接：传入 BV号 / AV号 / EP号 / SS号 / URL
    * POST /api/parse
+   * 返回 {code, message, data: videoInfo} 格式
    */
   API.parseVideo = function(url) {
-    return apiCallPost('/api/parse', { url: url }).then(function(data) {
-      if (data && data.code !== -1) {
-        // 根据返回类型标准化
-        if (data.videoInfo) {
-          data.videoInfo = normalizeVideoInfo(data.videoInfo);
-        }
-        if (data.video_info) {
-          data.video_info = normalizeVideoInfo(data.video_info);
-        }
-        if (data.info) {
-          data.info = normalizeVideoInfo(data.info);
-        }
+    return apiCallPost('/api/parse', { url: url }).then(function(result) {
+      if (result.code !== 0 || !result.data) {
+        return result;
       }
-      return data;
+
+      var raw = result.data;
+      var videoData = null;
+
+      // Worker 返回格式: {parsed: {...}, content: {type: 'video'|'season', data: {...}}}
+      if (raw.content && raw.content.data) {
+        videoData = raw.content.data;
+      } else if (raw.videoInfo) {
+        videoData = raw.videoInfo;
+      } else if (raw.info) {
+        videoData = raw.info;
+      } else if (raw.bvid || raw.title) {
+        // 已经是视频信息本身
+        videoData = raw;
+      }
+
+      if (videoData) {
+        var normalized = normalizeVideoInfo(videoData);
+        // 保留 parsed 信息供前端使用
+        normalized._parsed = raw.parsed || null;
+        normalized._contentType = raw.content ? raw.content.type : 'video';
+        return {
+          code: 0,
+          message: 'ok',
+          data: normalized
+        };
+      }
+
+      return {
+        code: -1,
+        message: '无法解析返回数据',
+        data: null
+      };
     });
   };
 
@@ -265,11 +296,15 @@
    * GET /api/video/info?bvid=xxx
    */
   API.getVideoInfo = function(bvid) {
-    return apiCallGet('/api/video/info', { bvid: bvid }).then(function(data) {
-      if (data && data.code !== -1) {
-        return normalizeVideoInfo(data);
+    return apiCallGet('/api/video/info', { bvid: bvid }).then(function(result) {
+      if (result.code === 0 && result.data) {
+        return {
+          code: 0,
+          message: 'ok',
+          data: normalizeVideoInfo(result.data)
+        };
       }
-      return data;
+      return result;
     });
   };
 
@@ -294,33 +329,40 @@
    * GET /api/popular
    */
   API.getPopular = function() {
-    return apiCallGet('/api/popular').then(function(data) {
-      if (data && data.code !== -1) {
-        // data 可能是数组或 {list: [...]}
-        if (Array.isArray(data)) {
-          var list = [];
-          for (var i = 0; i < data.length; i++) {
-            list.push(normalizeVideoInfo(data[i]));
-          }
-          return list;
-        }
-        if (data.list && Array.isArray(data.list)) {
-          var list2 = [];
-          for (var j = 0; j < data.list.length; j++) {
-            list2.push(normalizeVideoInfo(data.list[j]));
-          }
-          return list2;
-        }
-        if (data.videos && Array.isArray(data.videos)) {
-          var list3 = [];
-          for (var k = 0; k < data.videos.length; k++) {
-            list3.push(normalizeVideoInfo(data.videos[k]));
-          }
-          return list3;
-        }
-        return data;
+    return apiCallGet('/api/popular').then(function(result) {
+      if (result.code !== 0 || !result.data) {
+        return result;
       }
-      return data;
+
+      var data = result.data;
+      var list = null;
+
+      // data 可能是数组或 {list: [...]} 或 {videos: [...]}
+      if (Array.isArray(data)) {
+        list = data;
+      } else if (data.list && Array.isArray(data.list)) {
+        list = data.list;
+      } else if (data.videos && Array.isArray(data.videos)) {
+        list = data.videos;
+      }
+
+      if (list) {
+        var normalized = [];
+        for (var i = 0; i < list.length; i++) {
+          normalized.push(normalizeVideoInfo(list[i]));
+        }
+        return {
+          code: 0,
+          message: 'ok',
+          data: normalized
+        };
+      }
+
+      return {
+        code: 0,
+        message: 'ok',
+        data: data
+      };
     });
   };
 

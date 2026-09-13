@@ -45,6 +45,38 @@
 
   // --- 工具函数 ---
 
+  /**
+   * 构建图片代理地址（绕过 B站防盗链）
+   * 优先使用 referrerpolicy=no-referrer，失败时回退到代理
+   */
+  function proxyImage(url) {
+    if (!url || url.indexOf('data:') === 0) return url;
+    var apiBase = getApiBase();
+    if (!apiBase) return url;
+    return apiBase + '/api/image?url=' + encodeURIComponent(url);
+  }
+
+  /**
+   * 图片加载失败处理：先尝试代理，再回退占位图
+   * 使用方式: onerror="imgFallback(this)"
+   */
+  function imgFallback(imgEl) {
+    var originalSrc = imgEl.getAttribute('data-original') || imgEl.src;
+    var apiBase = getApiBase();
+
+    // 如果还没试过代理，且配置了 API 地址
+    if (!imgEl._triedProxy && apiBase && originalSrc.indexOf('api/image') === -1 && originalSrc.indexOf('data:') !== 0) {
+      imgEl._triedProxy = true;
+      imgEl.setAttribute('data-original', originalSrc);
+      imgEl.src = apiBase + '/api/image?url=' + encodeURIComponent(originalSrc);
+      return;
+    }
+
+    // 已经试过代理还是失败，用占位图
+    var svg = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'225\' fill=\'%23f0f0f0\'/%3E';
+    imgEl.src = svg;
+  }
+
   /** 显示页面，隐藏其他 */
   function showPage(page) {
     [pageHome, pageResult, pagePlayer].forEach(p => p.classList.remove('active'));
@@ -132,7 +164,7 @@
     }
     historyList.innerHTML = list.map(item => `
       <div class="history-item" data-bvid="${item.bvid}">
-        <img class="history-item-cover" src="${item.cover || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'68\' fill=\'%23f0f0f0\'/%3E'}" alt="" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'68\' fill=\'%23f0f0f0\'/%3E'">
+        <img class="history-item-cover" src="${item.cover || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'68\' fill=\'%23f0f0f0\'/%3E'}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="AppFunctions.imgFallback(this)">
         <div class="history-item-info">
           <div class="history-item-title">${item.title}</div>
           <div class="history-item-meta">${item.author || '未知'}</div>
@@ -174,7 +206,7 @@
     popularList.innerHTML = videos.map((v, i) => `
       <div class="video-card" style="animation-delay:${i * 0.05}s" data-bvid="${v.bvid}">
         <div class="video-card-cover">
-          <img src="${v.cover || ''}" alt="${v.title || ''}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'400\' height=\'225\' fill=\'%23f0f0f0\'/%3E'">
+          <img src="${v.cover || ''}" alt="${v.title || ''}" loading="lazy" referrerpolicy="no-referrer" onerror="AppFunctions.imgFallback(this)">
           ${v.duration ? `<span class="video-card-duration">${formatDuration(v.duration)}</span>` : ''}
         </div>
         <div class="video-card-body">
@@ -219,23 +251,21 @@
     // 尝试请求 API
     if (window.API && typeof API.getPopular === 'function') {
       API.getPopular().then(function(res) {
-        if (res && res.code === 0 && res.data && res.data.list) {
-          var list = res.data.list;
-          if (Array.isArray(list) && list.length) {
-            var mapped = list.map(function(v) {
-              return {
-                bvid: v.bvid,
-                title: v.title,
-                author: v.owner ? v.owner.name : '',
-                cover: v.pic,
-                duration: v.duration,
-                play: v.stat ? v.stat.view : 0
-              };
-            });
-            renderPopularVideos(mapped);
-            try { localStorage.setItem('bilidown_popular', JSON.stringify(mapped)); } catch(e) {}
-            return;
-          }
+        if (res && res.code === 0 && Array.isArray(res.data) && res.data.length) {
+          // data 已经是标准化后的视频数组
+          var mapped = res.data.map(function(v) {
+            return {
+              bvid: v.bvid,
+              title: v.title,
+              author: v.author,
+              cover: v.cover,
+              duration: v.duration,
+              play: v.view
+            };
+          });
+          renderPopularVideos(mapped);
+          try { localStorage.setItem('bilidown_popular', JSON.stringify(mapped)); } catch(e) {}
+          return;
         }
         fallbackPopular();
       }).catch(function() {
@@ -250,21 +280,19 @@
   function refreshPopular() {
     if (!window.API || typeof API.getPopular !== 'function') return;
     API.getPopular().then(function(res) {
-      if (res && res.code === 0 && res.data && res.data.list) {
-        var list = res.data.list;
-        if (Array.isArray(list) && list.length) {
-          var mapped = list.map(function(v) {
-            return {
-              bvid: v.bvid,
-              title: v.title,
-              author: v.owner ? v.owner.name : '',
-              cover: v.pic,
-              duration: v.duration,
-              play: v.stat ? v.stat.view : 0
-            };
-          });
-          renderPopularVideos(mapped);
-          try { localStorage.setItem('bilidown_popular', JSON.stringify(mapped)); } catch(e) {}
+      if (res && res.code === 0 && Array.isArray(res.data) && res.data.length) {
+        var mapped = res.data.map(function(v) {
+          return {
+            bvid: v.bvid,
+            title: v.title,
+            author: v.author,
+            cover: v.cover,
+            duration: v.duration,
+            play: v.view
+          };
+        });
+        renderPopularVideos(mapped);
+        try { localStorage.setItem('bilidown_popular', JSON.stringify(mapped)); } catch(e) {}
         }
       }
     }).catch(function() { /* 静默失败，使用缓存 */ });
@@ -389,6 +417,8 @@
     // 封面
     resultCover.src = video.cover || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'800\' height=\'450\' fill=\'%23f0f0f0\'/%3E';
     resultCover.alt = video.title || '视频封面';
+    resultCover.setAttribute('referrerpolicy', 'no-referrer');
+    resultCover.onerror = function() { AppFunctions.imgFallback(this); };
 
     // 时长
     resultDuration.textContent = video.duration ? formatDuration(video.duration) : '--:--';
@@ -678,5 +708,24 @@
   } else {
     init();
   }
+
+  // 导出到全局（供 HTML 内联事件和其他脚本调用）
+  window.AppFunctions = {
+    imgFallback: imgFallback,
+    proxyImage: proxyImage,
+    handleParse: function() { handleParse(); },
+    showPage: showPage,
+    showToast: showToast,
+    playVideo: function() { playVideo(); },
+    copyLink: function() { copyLink(); },
+    copyBv: function() { copyBv(); },
+    copyPlayUrl: function() { copyPlayUrl(); },
+    downloadVideo: function() { downloadVideo(); },
+    toggleDesc: function() { toggleDesc(); },
+    switchQuality: function(qn) { switchQuality(qn); },
+    switchPage: function(idx, cid) { switchPage(idx, cid); },
+    clearHistory: function() { clearHistory(); },
+    saveApiUrl: function() { saveApiUrl(); },
+  };
 
 })();
